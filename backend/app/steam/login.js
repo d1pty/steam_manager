@@ -9,9 +9,6 @@ const { getAllAccounts, getAccountById } = require('../db/accountModel');
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Инициализируем статус всех аккаунтов перед входом
- */
 const initializeAccounts = () => {
   const accounts = getAllAccounts();
   accounts.forEach(account => {
@@ -23,10 +20,6 @@ const initializeAccounts = () => {
   });
 };
 
-/**
- * Логин одного аккаунта с задержкой и ожиданием результата
- * Возвращает промис, резолвящийся после loggedOn или error
- */
 const logInAccountWithDelay = (botId, broadcastStatus) => {
   return new Promise(async resolve => {
     const account = getAccountById(botId);
@@ -37,7 +30,6 @@ const logInAccountWithDelay = (botId, broadcastStatus) => {
       return resolve();
     }
 
-    // Ждём перед логином, чтобы не стартовать все одновременно
     const LOGIN_DELAY_MS = 3000;
     await delay(LOGIN_DELAY_MS);
 
@@ -64,12 +56,10 @@ const logInAccountWithDelay = (botId, broadcastStatus) => {
     accountStatus[botId].status = 'Логин...';
     broadcastStatus(accountStatus);
 
-    // Подписываемся на одноразовые события
     client.once('loggedOn', () => {
       accountStatus[botId].status = 'Вход выполнен';
       broadcastStatus(accountStatus);
 
-      // Получаем аватар
       community.getSteamUser(new SteamID(client.steamID.toString()), (err, user) => {
         accountStatus[botId].avatar = err
           ? 'http://localhost:3001/images/defaultAvatar.jpg'
@@ -79,6 +69,12 @@ const logInAccountWithDelay = (botId, broadcastStatus) => {
 
       client.setPersona(SteamUser.EPersonaState.Online);
       resolve();
+    });
+    client.once('webSession', async (sid, cookies) => {
+      manager.setCookies(cookies);
+      community.setCookies(cookies);
+      await delay(2000);
+      loadInventoryAfterLogin(botId);
     });
 
     client.once('error', err => {
@@ -93,15 +89,11 @@ const logInAccountWithDelay = (botId, broadcastStatus) => {
   });
 };
 
-/**
- * Вход всех аккаунтов последовательно
- */
 const logInAccounts = async broadcastStatus => {
   const accounts = getAllAccounts();
   for (const account of accounts) {
     await logInAccountWithDelay(account.id, broadcastStatus);
   }
-  // По окончании рассылаем финальный статус
   broadcastStatus(accountStatus);
 };
 
@@ -127,9 +119,6 @@ const getTwoFactorCode = botId => {
   return null;
 };
 
-/**
- * Перевод кода ошибки в понятное сообщение
- */
 const getErrorStatusMessage = eresult => {
   switch (eresult) {
     case SteamUser.EResult.InvalidPassword:

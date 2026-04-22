@@ -1,31 +1,57 @@
 const { managers, communities } = require('./clients');
-const { getAccountById } = require('../db/accountModel');  // Импортируем функцию для получения данных из базы
+const { getAccountById, insertSentItem } = require('../db/accountModel');
 
 const sendTrades = async (accounts, tradeUrl) => {
   for (const botId of accounts) {
     const manager = managers[botId];
     const community = communities[botId];
 
-    // Получаем аккаунт из базы данных
     const account = getAccountById(botId);
-
     if (!manager || !community || !account) {
       console.log(`Аккаунт ${botId} не авторизован или отсутствует`);
       continue;
     }
 
+    // Получаем содержимое инвентаря Steam (CS:GO, appid=730, contextid=2)
     manager.getInventoryContents(730, 2, true, (err, inventory) => {
-      if (err || !inventory.length) return;
+      if (err) {
+        console.error(`Ошибка получения инвентаря для ${botId}:`, err);
+        return;
+      }
+      if (!inventory.length) {
+        console.log(`Инвентарь ${botId} пуст`);
+        return;
+      }
 
       const offer = manager.createOffer(tradeUrl);
       offer.addMyItems(inventory);
-      offer.setMessage('Обмен от аккаунта бота');
+
       offer.send((err, status) => {
-        if (err) return;
-        if (status === 'pending') {
-          community.acceptConfirmationForObject(account.lolka, offer.id, (err) => {
-            if (err) console.error(`Ошибка подтверждения ${offer.id}:`, err);
+        if (err) {
+          console.error(`Ошибка отправки оффера для ${botId}:`, err);
+          return;
+        }
+
+        const sentDate = new Date().toLocaleDateString('ru-RU');
+
+        inventory.forEach(item => {
+          insertSentItem(account.username, {
+            game_id: `${item.appid}_${item.contextid}`,
+            item_name: item.name,
+            quantity: 1,
+            price: 0,
+            sent_at: sentDate,
+            sold_at: null,
           });
+        });
+        if (status === 'pending') {
+          community.acceptConfirmationForObject(
+            account.lolka,
+            offer.id,
+            (err) => {
+              if (err) console.error(`Ошибка подтверждения ${offer.id}:`, err);
+            }
+          );
         }
       });
     });

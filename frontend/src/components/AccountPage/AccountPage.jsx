@@ -95,7 +95,7 @@ const AccountPage = ({ accounts, setAccounts }) => {
 
         <Col>
           <Space>
-            <Text strong>Всего аккаунтов: {accounts.length}</Text>
+            {/* <Text strong>Всего аккаунтов: {accounts.length}</Text> */}
             <Button icon={<DownloadOutlined />} onClick={handleExport}>
               Экспорт
             </Button>

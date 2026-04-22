@@ -4,8 +4,8 @@ const path = require('path');
 const { setupWebSocket, getBroadcastFunction } = require('./app/ws/websocket');
 const { initializeAccounts, logInAccounts } = require('./app/steam/login');
 const apiRoutes = require('./app/routes/api');
-const { createTable } = require('./app/db/accountModel');
-createTable();
+const { initDatabase } = require('./app/db/accountModel');
+initDatabase();
 const app = express();
 const port = 3001;
 
@@ -18,9 +18,8 @@ initializeAccounts();
 
 const server = app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
-  setupWebSocket(server); // Инициализируем WebSocket
+  setupWebSocket(server);
 
-  // Ждём, пока WebSocket будет готов:
   const broadcastStatus = getBroadcastFunction();
-  logInAccounts(broadcastStatus); // Теперь можно логиниться
+  logInAccounts(broadcastStatus);
 });

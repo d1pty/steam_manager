@@ -15,7 +15,7 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
   const fetchTwoFactorCode = async (accountId) => {
     if (!accountId) {
       console.error('Нет valid accountId. Запрос не будет отправлен.');
-      return; // Прерываем выполнение, если accountId пустой или undefined
+      return;
     }
     try {
       const response = await fetch(`http://localhost:3001/api/get-2fa-code?accountId=${accountId}`);
@@ -30,7 +30,7 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
   };
 
   useEffect(() => {
-    if (!account || !account.id) return; // Добавляем проверку для отсутствующего account или account.id
+    if (!account || !account.id) return;
   
     const updateState = () => {
       const now = Date.now();
@@ -41,12 +41,12 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
   
     const fetchAndSync = async () => {
       if (account.id) {
-        await fetchTwoFactorCode(account.id); // Отправляем запрос только если account.id существует
+        await fetchTwoFactorCode(account.id);
         updateState();
       }
     };
   
-    fetchAndSync(); // первая загрузка кода
+    fetchAndSync(); 
   
     const intervalId = setInterval(() => {
       const now = Date.now();
@@ -55,12 +55,12 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
       setSecondsRemaining((seconds - 1 + fractional).toFixed(1));
   
       if (seconds === 30 && account?.id) {
-        fetchTwoFactorCode(account.id); // Также проверяем перед запросом
+        fetchTwoFactorCode(account.id);
       }
-    }, 100); // каждые 100 мс — для плавности
+    }, 100);
   
     return () => clearInterval(intervalId);
-  }, [account, visible]); // Возобновляем выполнение, только если account и его id существуют
+  }, [account, visible]);
 
   const handleDisable = async () => {
     try {

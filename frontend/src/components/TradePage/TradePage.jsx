@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Row, Input, Button, Space, Typography } from 'antd';
+import { Row, Input, Button, Space, Typography, message } from 'antd';
 import TradeCard from './TradeCard';
 
 const { Link, Text } = Typography;
@@ -7,6 +7,7 @@ const { Link, Text } = Typography;
 const TradePage = ({ accounts, onSendTrade }) => {
   const [selected, setSelected] = useState([]);
   const [link, setLink] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const toggleAccount = (id) => {
     setSelected(prev =>
@@ -14,15 +15,26 @@ const TradePage = ({ accounts, onSendTrade }) => {
     );
   };
 
-  const handleSend = () => {
-    onSendTrade({ link, selected });
+  const handleSend = async () => {
+    setLoading(true);
+    try {
+      await onSendTrade({ link, selected });
+      message.success('Предметы успешно отправлены');
+      setSelected([]);
+      setLink('');
+    } catch (error) {
+      console.error(error);
+      message.error('Ошибка при отправке предметов');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSelectAll = () => {
     if (selected.length === accounts.length) {
-      setSelected([]); // снять выделение
+      setSelected([]);
     } else {
-      setSelected(accounts.map(acc => acc.id)); // выбрать все
+      setSelected(accounts.map(acc => acc.id));
     }
   };
 
@@ -36,7 +48,12 @@ const TradePage = ({ accounts, onSendTrade }) => {
             onChange={e => setLink(e.target.value)}
             style={{ flex: 1 }}
           />
-          <Button type="primary" onClick={handleSend} disabled={!selected.length || !link}>
+          <Button
+            type="primary"
+            onClick={handleSend}
+            disabled={!selected.length || !link}
+            loading={loading}
+          >
             Отправить предметы
           </Button>
         </Space>
