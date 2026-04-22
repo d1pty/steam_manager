@@ -1,11 +1,13 @@
 const { managers, communities } = require('./clients');
-const config = require('../../configs/auth.json');
+const { getAccountById } = require('../db/accountModel');  // Импортируем функцию для получения данных из базы
 
 const sendTrades = async (accounts, tradeUrl) => {
   for (const botId of accounts) {
     const manager = managers[botId];
     const community = communities[botId];
-    const account = config[botId];
+
+    // Получаем аккаунт из базы данных
+    const account = getAccountById(botId);
 
     if (!manager || !community || !account) {
       console.log(`Аккаунт ${botId} не авторизован или отсутствует`);

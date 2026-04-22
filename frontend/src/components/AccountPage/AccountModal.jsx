@@ -13,6 +13,10 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
   const [secondsRemaining, setSecondsRemaining] = useState(null);
 
   const fetchTwoFactorCode = async (accountId) => {
+    if (!accountId) {
+      console.error('Нет valid accountId. Запрос не будет отправлен.');
+      return; // Прерываем выполнение, если accountId пустой или undefined
+    }
     try {
       const response = await fetch(`http://localhost:3001/api/get-2fa-code?accountId=${accountId}`);
       const data = await response.json();
@@ -26,35 +30,37 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
   };
 
   useEffect(() => {
-    if (!account) return;
-
+    if (!account || !account.id) return; // Добавляем проверку для отсутствующего account или account.id
+  
     const updateState = () => {
       const now = Date.now();
       const seconds = 30 - Math.floor(now / 1000) % 30;
       const fractional = 1 - (now % 1000) / 1000;
       setSecondsRemaining((seconds - 1 + fractional).toFixed(1));
     };
-
+  
     const fetchAndSync = async () => {
-      await fetchTwoFactorCode(account.id);
-      updateState();
+      if (account.id) {
+        await fetchTwoFactorCode(account.id); // Отправляем запрос только если account.id существует
+        updateState();
+      }
     };
-
+  
     fetchAndSync(); // первая загрузка кода
-
+  
     const intervalId = setInterval(() => {
       const now = Date.now();
       const seconds = 30 - Math.floor(now / 1000) % 30;
       const fractional = 1 - (now % 1000) / 1000;
       setSecondsRemaining((seconds - 1 + fractional).toFixed(1));
-
-      if (seconds === 30) {
-        fetchTwoFactorCode(account.id);
+  
+      if (seconds === 30 && account?.id) {
+        fetchTwoFactorCode(account.id); // Также проверяем перед запросом
       }
     }, 100); // каждые 100 мс — для плавности
-
+  
     return () => clearInterval(intervalId);
-  }, [account, visible]);
+  }, [account, visible]); // Возобновляем выполнение, только если account и его id существуют
 
   const handleDisable = async () => {
     try {

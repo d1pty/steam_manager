@@ -1,15 +1,20 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 const router = express.Router();
 const { logInAccountWithDelay } = require('../steam/login');
 const { getBroadcastFunction } = require('../ws/websocket');
 const { sendTrades } = require('../steam/trade');
-const { accountStatus, logOffAccount, getTwoFactorCode } = require('../steam/login');
-const config = require('../../configs/auth.json');
-
+const { logOffAccount, getTwoFactorCode } = require('../steam/login');
+const { clients, communities, managers, accountStatus } = require('../steam/clients');
+const { insertAccount,deleteAccount,getAllAccounts,getAccountById } = require('../db/accountModel');
 router.get('/status', (req, res) => {
-  res.json(accountStatus);
+  const accounts = getAllAccounts();
+  const status = accounts.map(account => ({
+    id: account.id,
+    username: account.username,
+    status: accountStatus[account.id] ? accountStatus[account.id].status : 'Неизвестен',
+    avatar: accountStatus[account.id] ? accountStatus[account.id].avatar : '',
+  }));
+  res.json(status);
 });
 
 router.post('/send-trade', async (req, res) => {
@@ -31,21 +36,6 @@ router.post('/add-account', async (req, res) => {
       return res.status(400).json({ error: 'Все поля обязательны' });
     }
 
-    const mafilesDir = path.join(__dirname, '../../configs/mafiles');
-    const authPath = path.join(__dirname, '../../configs/auth.json');
-    const maFilePath = path.join(mafilesDir, `${username}.maFile`);
-
-    if (!fs.existsSync(mafilesDir)) {
-      fs.mkdirSync(mafilesDir, { recursive: true });
-    }
-
-    fs.writeFileSync(maFilePath, maFileContent);
-
-    let authData = {};
-    if (fs.existsSync(authPath)) {
-      authData = JSON.parse(fs.readFileSync(authPath, 'utf8'));
-    }
-
     let maFileParsed = JSON.parse(maFileContent);
     const shared_secret = maFileParsed.shared_secret;
     const identity_secret = maFileParsed.identity_secret;
@@ -54,27 +44,23 @@ router.post('/add-account', async (req, res) => {
       return res.status(400).json({ error: 'Неверный формат maFile' });
     }
 
-    const id = Object.keys(authData).length.toString();
-    authData[id] = {
+    const newAccountId = `${Date.now()}`; // Генерируем уникальный ID
+    insertAccount(newAccountId, {
       username,
       password,
       shared: shared_secret,
-      lolka: identity_secret
-    };
+      lolka: identity_secret,
+    });
 
-    fs.writeFileSync(authPath, JSON.stringify(authData, null, 2));
-
-    const newAccountId = id;
     accountStatus[newAccountId] = {
       username,
       status: 'Инициализация...',
-      avatar: ''
+      avatar: '',
     };
 
     const broadcastStatus = getBroadcastFunction();
-    logInAccountWithDelay(newAccountId, authData[newAccountId], broadcastStatus);
+    logInAccountWithDelay(newAccountId, broadcastStatus);
 
-    // Отправляем обновлённые данные всем подключённым WebSocket клиентам
     broadcastStatus(accountStatus);
 
     res.status(200).json({ message: 'Аккаунт успешно добавлен' });
@@ -90,38 +76,27 @@ router.post('/delete-account', async (req, res) => {
     return res.status(400).json({ error: 'Нет ID аккаунта для удаления' });
   }
 
-  const authPath = path.join(__dirname, '../../configs/auth.json');
-
   try {
-    if (!fs.existsSync(authPath)) {
-      return res.status(500).json({ error: 'Файл аккаунтов не найден' });
-    }
+    // Удаляем аккаунт из базы
+    deleteAccount(accountId);
 
-    const authData = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+    // Убираем из активных клиентов, сообществ и менеджеров
+    delete clients[accountId];
+    delete communities[accountId];
+    delete managers[accountId];
+    delete accountStatus[accountId];
 
-    if (!authData[accountId]) {
-      return res.status(404).json({ error: 'Аккаунт не найден' });
-    }
-
-    // Удаление аккаунта
-    delete authData[accountId];
-    fs.writeFileSync(authPath, JSON.stringify(authData, null, 2));
-
-    // Очищаем и обновляем accountStatus
-    Object.keys(accountStatus).forEach(key => delete accountStatus[key]);
-    for (const [id, acc] of Object.entries(authData)) {
-      accountStatus[id] = {
-        username: acc.username,
-        status: 'Ожидание входа',
-        avatar: '',
-      };
-    }
-
-    // Отправляем обновление всем подключённым WebSocket клиентам
+    // Обновляем статус на клиенте
     const broadcastStatus = getBroadcastFunction();
     broadcastStatus(accountStatus);
 
-    res.status(200).json(accountStatus); // Возвращаем в том же виде, как GET /status
+    // Возвращаем обновленный список аккаунтов из базы
+    const updatedAccounts = getAllAccounts();
+
+    res.status(200).json({
+      message: 'Аккаунт успешно удален',
+      accounts: updatedAccounts,
+    });
   } catch (err) {
     console.error('Ошибка при удалении аккаунта:', err);
     res.status(500).json({ error: 'Ошибка сервера' });
@@ -152,12 +127,13 @@ router.post('/enable-account', async (req, res) => {
     return res.status(400).json({ error: 'Нет ID аккаунта для включения' });
   }
 
-  if (!accountStatus[accountId]) {
+  const account = getAccountById(accountId);
+  if (!account) {
     return res.status(404).json({ error: 'Аккаунт не найден' });
   }
 
   // Проверка статуса, если аккаунт уже вошел
-  if (accountStatus[accountId].status === 'Вход выполнен') {
+  if (accountStatus[accountId] && accountStatus[accountId].status === 'Вход выполнен') {
     return res.status(400).json({ error: 'Аккаунт уже вошел' });
   }
 
@@ -166,8 +142,7 @@ router.post('/enable-account', async (req, res) => {
   accountStatus[accountId].status = 'Логин...';
   broadcastStatus(accountStatus);
 
-  // Вход в аккаунт
-  await logInAccountWithDelay(accountId, config[accountId], broadcastStatus);
+  await logInAccountWithDelay(accountId, broadcastStatus);
 
   res.status(200).json({ message: 'Аккаунт включен', accountStatus });
 });
@@ -178,11 +153,12 @@ router.get('/get-2fa-code', (req, res) => {
     return res.status(400).json({ error: 'Не указан ID аккаунта' });
   }
 
-  const { twoFactorCode, timeRemaining } = getTwoFactorCode(accountId);
-
-  if (!twoFactorCode) {
+  const account = getAccountById(accountId);
+  if (!account) {
     return res.status(404).json({ error: 'Аккаунт не найден' });
   }
+
+  const { twoFactorCode, timeRemaining } = getTwoFactorCode(accountId);
 
   res.status(200).json({ twoFactorCode, timeRemaining });
 });

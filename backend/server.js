@@ -4,7 +4,8 @@ const path = require('path');
 const { setupWebSocket, getBroadcastFunction } = require('./app/ws/websocket');
 const { initializeAccounts, logInAccounts } = require('./app/steam/login');
 const apiRoutes = require('./app/routes/api');
-
+const { createTable } = require('./app/db/accountModel');
+createTable();
 const app = express();
 const port = 3001;
 

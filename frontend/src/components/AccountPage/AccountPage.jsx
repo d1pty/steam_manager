@@ -24,39 +24,35 @@ const AccountPage = ({ accounts, setAccounts }) => {
         },
         body: JSON.stringify({ accountId }),
       });
-
+  
       if (response.ok) {
-        const data = await response.json();
-        console.log(data.message);
-
-        const updatedAccounts = Object.keys(data.accounts).map(key => ({
-          id: key,
-          ...data.accounts[key],
-        }));
-
-        setAccounts(updatedAccounts);
+        // Сброс выделенного аккаунта
+        if (selectedAccount?.id === accountId) {
+          setSelectedAccount(null);
+        }
       } else {
         console.error('Ошибка при удалении аккаунта');
       }
     } catch (error) {
       console.error('Ошибка при запросе на сервер:', error);
     }
-
-    handleCloseModal();
+  
+    handleCloseModal(); // Закрываем модальное окно
   };
-
   return (
     <>
       <AddAccountForm />
 
       <Row gutter={[16, 16]}>
-        {accounts.map(account => (
-          <AccountCard
-            key={account.id}
-            account={account}
-            onClick={() => handleAccountClick(account)}
-          />
-        ))}
+        {accounts
+          .filter(account => account && account.id) // убираем undefined и аккаунты без id
+          .map(account => (
+            <AccountCard
+              key={account.id}
+              account={account}
+              onClick={() => handleAccountClick(account)}
+            />
+          ))}
       </Row>
 
       <AccountModal
