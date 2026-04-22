@@ -9,6 +9,8 @@ const { insertAccount, deleteAccount, getAllAccounts, getAccountById, getItemDis
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
+const SteamTotp = require('steam-totp');
+const cheerio = require('cheerio');
 
 router.get('/status', (req, res) => {
   const accounts = getAllAccounts();
@@ -246,14 +248,12 @@ router.post('/import-accounts', (req, res) => {
 
     const broadcastStatus = getBroadcastFunction();
     const newIds = [];
-    let skippedCount = 0;
 
     for (const content of maFiles) {
       let parsed;
       try {
         parsed = JSON.parse(content);
       } catch {
-        skippedCount++;
         continue;
       }
 
@@ -261,7 +261,6 @@ router.post('/import-accounts', (req, res) => {
       const shared = parsed.shared_secret;
       const identity = parsed.identity_secret;
       if (!login || !shared || !identity || !accountsMap.has(login)) {
-        skippedCount++;
         continue;
       }
 
@@ -271,12 +270,15 @@ router.post('/import-accounts', (req, res) => {
 
       const password = accountsMap.get(login);
       const newId = Date.now().toString();
-      insertAccount(newId, { username: login, password, shared, lolka: identity });
-      accountStatus[newId] = { username: login, status: 'Ожидание входа', avatar: '' };
-      newIds.push(newId);
+      const inserted = insertAccount(newId, { username: login, password, shared, lolka: identity });
+
+      if (inserted) {
+        accountStatus[newId] = { username: login, status: 'Ожидание входа', avatar: '' };
+        newIds.push(newId);
+      }
     }
 
-    res.json({ ok: true, added: newIds.length, skipped: skippedCount });
+    res.json({ ok: true, added: newIds.length });
 
     setImmediate(async () => {
       for (const id of newIds) {
@@ -287,7 +289,7 @@ router.post('/import-accounts', (req, res) => {
 
   } catch (err) {
     console.error('Ошибка в /import-accounts:', err);
-    res.status(500).json({ error: 'Серверная ошибка при импорте' });
+    res.status(500).json({ error: 'Серверная ошибка' });
   }
 });
 
@@ -308,6 +310,7 @@ router.get('/item-distribution', (req, res) => {
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
+
 router.get('/average-weekly-price', (req, res) => {
   try {
     const rawData = getAllPricedItems();
@@ -316,5 +319,91 @@ router.get('/average-weekly-price', (req, res) => {
     console.error('Ошибка при получении всех предметов с ценами:', err);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
+});
+
+router.get('/pending-confirmations', (req, res) => {
+  const { accountId } = req.query;
+  if (!accountId) {
+    return res.status(400).json({ error: 'Не указан accountId' });
+  }
+
+  const community = communities[accountId];
+  if (!community) {
+    return res.status(404).json({ error: 'Community не найден для этого accountId' });
+  }
+
+  // Берём identitySecret (lolka) из БД
+  const account = getAccountById(accountId);
+  const { lolka } = account;
+  if (!lolka) {
+    return res.status(500).json({ error: 'Не найден identitySecret для подтверждений' });
+  }
+
+  // Генерируем time и confirmation key
+  const time = SteamTotp.time();
+  const key = SteamTotp.getConfirmationKey(lolka, time, 'conf');
+
+  community.getConfirmations(time, key, (err, confirmations) => {
+    if (err) {
+      console.error(`Ошибка получения подтверждений для ${accountId}:`, err);
+      return res.status(500).json({
+        error: 'Не удалось получить список подтверждений',
+        details: err.message
+      });
+    }
+
+    const filteredConfirmations = confirmations.map(conf => ({
+      id: conf.id,
+      title: conf.title,
+      sending: conf.sending,
+      icon: conf.icon
+    }));
+
+    res.json({ confirmations: filteredConfirmations });
+  });
+});
+
+router.post('/respond-confirmation', (req, res) => {
+  const { accountId, confirmationId, accept } = req.body;
+
+  if (!accountId || !confirmationId || typeof accept !== 'boolean') {
+    return res.status(400).json({ error: 'Отсутствует accountId, confirmationId или accept' });
+  }
+
+  const community = communities[accountId];
+  if (!community) {
+    return res.status(404).json({ error: 'Community не найден для этого accountId' });
+  }
+
+  const account = getAccountById(accountId);
+  if (!account || !account.lolka) {
+    return res.status(500).json({ error: 'Не найден identitySecret (lolka) для подтверждений' });
+  }
+
+  const identitySecret = account.lolka;
+  const time = SteamTotp.time();
+  const tag = accept ? 'allow' : 'cancel';
+  const key = SteamTotp.getConfirmationKey(identitySecret, time, 'conf');
+
+  community.getConfirmations(time, key, (err, confirmations) => {
+    if (err) {
+      console.error(`Ошибка при получении подтверждений для ${accountId}:`, err);
+      return res.status(500).json({ error: 'Не удалось получить подтверждения', details: err.message });
+    }
+
+    const targetConfirmation = confirmations.find(c => c.id === confirmationId);
+    if (!targetConfirmation) {
+      return res.status(404).json({ error: 'Подтверждение с таким ID не найдено' });
+    }
+    const key = SteamTotp.getConfirmationKey(identitySecret, time, tag);
+    targetConfirmation.respond(time, key, accept, (err) => {
+      if (err) {
+        console.error(`Ошибка при ${accept ? 'принятии' : 'отклонении'} подтверждения ${confirmationId}:`, err);
+        return res.status(500).json({ error: 'Не удалось обработать подтверждение', details: err.message });
+      }
+
+      res.json({ success: true, message: `Подтверждение ${accept ? 'принято' : 'отклонено'}` });
+    });
+  });
 });
 module.exports = router;

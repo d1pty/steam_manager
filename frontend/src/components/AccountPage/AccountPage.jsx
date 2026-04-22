@@ -5,7 +5,6 @@ import AccountCard from './AccountCard';
 import AddAccountForm from './AddAccountForm';
 import AccountModal from './AccountModal';
 import ImportAccountsModal from './ImportAccountsModal';
-
 const { Text } = Typography;
 
 const AccountPage = ({ accounts, setAccounts }) => {
@@ -74,17 +73,6 @@ const AccountPage = ({ accounts, setAccounts }) => {
     setImportModalVisible(false);
   };
 
-  const refreshAccounts = async () => {
-    try {
-      const response = await fetch('http://localhost:3001/api/get-accounts');
-      if (response.ok) {
-        const data = await response.json();
-        setAccounts(data.accounts);
-      }
-    } catch (error) {
-      console.error('Ошибка при обновлении аккаунтов:', error);
-    }
-  };
 
   return (
     <>
@@ -95,7 +83,7 @@ const AccountPage = ({ accounts, setAccounts }) => {
 
         <Col>
           <Space>
-            {/* <Text strong>Всего аккаунтов: {accounts.length}</Text> */}
+            <Text strong>Всего аккаунтов: {accounts.length}</Text>
             <Button icon={<DownloadOutlined />} onClick={handleExport}>
               Экспорт
             </Button>
@@ -109,7 +97,6 @@ const AccountPage = ({ accounts, setAccounts }) => {
       <ImportAccountsModal
         visible={importModalVisible}
         onClose={closeImportModal}
-        refreshAccounts={refreshAccounts}
       />
 
       <Row gutter={[16, 16]}>

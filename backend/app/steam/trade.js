@@ -32,7 +32,7 @@ const sendTrades = async (accounts, tradeUrl) => {
           return;
         }
 
-        const sentDate = new Date().toLocaleDateString('ru-RU');
+        const sentDate = new Date().toISOString().slice(0, 10);
 
         inventory.forEach(item => {
           insertSentItem(account.username, {

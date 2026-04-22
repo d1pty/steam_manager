@@ -5,7 +5,7 @@ import { InboxOutlined } from '@ant-design/icons';
 const { Dragger } = Upload;
 const { TextArea } = Input;
 
-const ImportAccountsModal = ({ visible, onClose, refreshAccounts }) => {
+const ImportAccountsModal = ({ visible, onClose}) => {
   const [fileList, setFileList] = useState([]);
   const [accsText, setAccsText] = useState('');
 
@@ -51,7 +51,6 @@ const ImportAccountsModal = ({ visible, onClose, refreshAccounts }) => {
 
         if (response.ok) {
           message.success('Импорт запущен.');
-          refreshAccounts && refreshAccounts();
         } else {
           message.error(result.error || 'Ошибка при импорте аккаунтов');
         }

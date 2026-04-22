@@ -1,7 +1,7 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const dbPath = path.join(__dirname, 'accounts.db');
+const dbPath = path.join(__dirname, 'database.db');
 const db = new Database(dbPath);
 
 const createAccountsTable = () => {
@@ -60,10 +60,8 @@ const existsAccount = (username) => {
 
 const insertAccount = (id, account) => {
   if (existsAccount(account.username)) {
-    console.warn(`Аккаунт с username="${account.username}" уже существует, пропускаем вставку.`);
     return false;
   }
-
   const stmt = db.prepare(
     `
     INSERT INTO accounts (id, username, password, shared, lolka)

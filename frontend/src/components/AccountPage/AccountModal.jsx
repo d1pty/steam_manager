@@ -1,24 +1,33 @@
-import React, { useEffect, useState } from 'react';
-import { Modal, Button, Avatar, Tag, Tooltip, message, Progress } from 'antd';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  Modal,
+  Button,
+  Avatar,
+  Tag,
+  Tooltip,
+  message,
+  Progress,
+} from 'antd';
 import {
   UserOutlined,
   PoweroffOutlined,
   ReloadOutlined,
   DeleteOutlined,
   CloseOutlined,
+  CheckOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 
 const AccountModal = ({ visible, account, onClose, onDelete }) => {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [secondsRemaining, setSecondsRemaining] = useState(null);
+  const [pendingOffers, setPendingOffers] = useState([]);
 
   const fetchTwoFactorCode = async (accountId) => {
-    if (!accountId) {
-      console.error('Нет valid accountId. Запрос не будет отправлен.');
-      return;
-    }
     try {
-      const response = await fetch(`http://localhost:3001/api/get-2fa-code?accountId=${accountId}`);
+      const response = await fetch(
+        `http://localhost:3001/api/get-2fa-code?accountId=${accountId}`
+      );
       const data = await response.json();
       if (data.twoFactorCode && data.timeRemaining !== undefined) {
         setTwoFactorCode(data.twoFactorCode);
@@ -29,36 +38,40 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
     }
   };
 
+  const fetchConfirmations = useCallback(async (accountId) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/pending-confirmations?accountId=${accountId}`);
+      const data = await response.json();
+      setPendingOffers(data.confirmations || []);
+    } catch (error) {
+      console.error('Ошибка при загрузке подтверждений:', error);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!account || !account.id) return;
-  
-    const updateState = () => {
+    if (!account?.id) return;
+    fetchConfirmations(account.id);
+  }, [account, fetchConfirmations]);
+
+  useEffect(() => {
+    if (!account?.id || !visible) return;
+
+    const updateTimer = () => {
       const now = Date.now();
       const seconds = 30 - Math.floor(now / 1000) % 30;
       const fractional = 1 - (now % 1000) / 1000;
       setSecondsRemaining((seconds - 1 + fractional).toFixed(1));
     };
-  
-    const fetchAndSync = async () => {
-      if (account.id) {
-        await fetchTwoFactorCode(account.id);
-        updateState();
-      }
-    };
-  
-    fetchAndSync(); 
-  
+
+    fetchTwoFactorCode(account.id).then(updateTimer);
+
     const intervalId = setInterval(() => {
-      const now = Date.now();
-      const seconds = 30 - Math.floor(now / 1000) % 30;
-      const fractional = 1 - (now % 1000) / 1000;
-      setSecondsRemaining((seconds - 1 + fractional).toFixed(1));
-  
-      if (seconds === 30 && account?.id) {
+      updateTimer();
+      if (Math.floor(Date.now() / 1000) % 30 === 0) {
         fetchTwoFactorCode(account.id);
       }
     }, 100);
-  
+
     return () => clearInterval(intervalId);
   }, [account, visible]);
 
@@ -69,8 +82,10 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId: account.id }),
       });
+      message.success('Аккаунт отключён');
     } catch (error) {
-      console.error('Ошибка при отключении аккаунта:', error);
+      console.error(error);
+      message.error('Ошибка при отключении');
     }
   };
 
@@ -81,15 +96,41 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId: account.id }),
       });
+      message.success('Аккаунт включён');
     } catch (error) {
-      console.error('Ошибка при включении аккаунта:', error);
+      console.error(error);
+      message.error('Ошибка при включении');
     }
   };
 
   const handleCopy2FACode = () => {
-    navigator.clipboard.writeText(twoFactorCode)
-      .then(() => message.success('2FA код скопирован в буфер обмена'))
-      .catch(() => message.error('Ошибка при копировании 2FA кода'));
+    navigator.clipboard
+      .writeText(twoFactorCode)
+      .then(() => message.success('2FA код скопирован'))
+      .catch(() => message.error('Ошибка копирования'));
+  };
+
+  const handleRespondToOffer = async (confirmationId, accept) => {
+    try {
+      const res = await fetch('http://localhost:3001/api/respond-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: account.id, confirmationId, accept }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        message.error(`Не удалось ${accept ? 'принять' : 'отменить'} оффер`);
+        return;
+      }
+
+      message.success(`Оффер ${accept ? 'принят' : 'отменён'}`);
+      await fetchConfirmations(account.id);
+    } catch (err) {
+      console.error('Ошибка сети:', err);
+      message.error('Сетевая ошибка');
+    }
   };
 
   if (!account) return null;
@@ -136,7 +177,7 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
         </Tooltip>,
         <Button key="close" icon={<CloseOutlined />} onClick={onClose}>
           Закрыть
-        </Button>
+        </Button>,
       ]}
     >
       <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -164,7 +205,7 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <strong>Текущий 2FA код: </strong>
+        <strong>Текущий 2FA код:</strong>
         <div
           onClick={handleCopy2FACode}
           style={{
@@ -173,29 +214,77 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
             padding: '8px',
             backgroundColor: '#f0f0f0',
             borderRadius: '4px',
-            display: 'inline-block',
-            width: '100%',
             textAlign: 'center',
+            marginTop: 4,
           }}
         >
           {twoFactorCode || 'Загрузка...'}
         </div>
 
-        <div style={{ marginTop: 10 }}>
-          {secondsRemaining !== null && (
-            <>
-              <Progress
-                percent={(secondsRemaining / 30) * 100}
-                status="active"
-                showInfo={false}
-                strokeColor="#52c41a"
-              />
-              <div style={{ textAlign: 'center', fontSize: 12, marginTop: 5 }}>
-                Обновление через {Number(secondsRemaining).toFixed(1)} сек.
+        {secondsRemaining !== null && (
+          <div style={{ marginTop: 10 }}>
+            <Progress
+              percent={(secondsRemaining / 30) * 100}
+              status="active"
+              showInfo={false}
+              strokeColor="#52c41a"
+            />
+            <div style={{ textAlign: 'center', fontSize: 12, marginTop: 5 }}>
+              Обновление через {Number(secondsRemaining).toFixed(1)} сек.
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 24 }}>
+        <strong>Ожидают подтверждения:</strong>
+        {pendingOffers.length === 0 ? (
+          <div style={{ marginTop: 8, fontStyle: 'italic' }}>
+            Нет ожидающих подтверждения офферов
+          </div>
+        ) : (
+          pendingOffers.map(offer => (
+            <div
+              key={offer.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                marginTop: 12,
+                padding: 8,
+                border: '1px solid #f0f0f0',
+                borderRadius: 4,
+                gap: 12,
+              }}
+            >
+              <Avatar shape="square" size={48} src={offer.icon} />
+
+              <div style={{ flex: 1 }}>
+                <div><strong>{offer.title}</strong></div>
+                <div><strong>{offer.sending}</strong></div>
               </div>
-            </>
-          )}
-        </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<CheckOutlined />}
+                  onClick={() => handleRespondToOffer(offer.id, true)}
+                >
+                  Принять
+                </Button>
+                <Button
+                  type="default"
+                  size="small"
+                  danger
+                  icon={<StopOutlined />}
+                  onClick={() => handleRespondToOffer(offer.id, false)}
+                >
+                  Отменить
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </Modal>
   );
