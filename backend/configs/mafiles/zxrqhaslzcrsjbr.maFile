@@ -1,0 +1,19 @@
+{
+  "shared_secret": "HP/sGxaDM6HLPP02ffkQ3zi6pOA=",
+  "serial_number": "1557787014387318350",
+  "revocation_code": "R57282",
+  "uri": "otpauth://totp/Steam:zxrqhaslzcrsjbr?secret=DT76YGYWQMZ2DSZ47U3H36IQ344LVJHA\u0026issuer=Steam",
+  "server_time": "1771407035",
+  "account_name": "zxrqhaslzcrsjbr",
+  "token_gid": "30e7be9baa63d4f",
+  "status": 1,
+  "identity_secret": "69axB9Az2U4wSAcp5eTQtth9iZ4=",
+  "secret_1": "elXYOnhSK\u002B4ZwF\u002BNmO2dULgvOzk=",
+  "device_id": "android:496620b7-df2f-cd65-1157-df6ad8ac9d02",
+  "fully_enrolled": true,
+  "Session": {
+    "AccessToken": "eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAxOV8yN0JFOUJBMV9DMEQzQSIsICJzdWIiOiAiNzY1NjExOTg3NDQ3MTg0MDUiLCAiYXVkIjogWyAid2ViIiwgIm1vYmlsZSIgXSwgImV4cCI6IDE3NzE0OTQ4MDksICJuYmYiOiAxNzYyNzY3MDM0LCAiaWF0IjogMTc3MTQwNzAzNCwgImp0aSI6ICIwMDAzXzI3QkU5QkIxX0JERDdGIiwgIm9hdCI6IDE3NzE0MDcwMzQsICJydF9leHAiOiAxNzg5NzIyODE4LCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMzcuMjcuMzUuMTg2IiwgImlwX2NvbmZpcm1lciI6ICIzNy4yNy4zNS4xODYiIH0.28RDnMqPRm8tBzR9Vn_AWhAloTiUS2UYmUcNJoA24FZFCA0hLkmKn2UUQIm3L3b0GrqQ9exveo1Xp4SLj519Cw",
+    "RefreshToken": "eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInN0ZWFtIiwgInN1YiI6ICI3NjU2MTE5ODc0NDcxODQwNSIsICJhdWQiOiBbICJ3ZWIiLCAicmVuZXciLCAiZGVyaXZlIiwgIm1vYmlsZSIgXSwgImV4cCI6IDE3ODk3MjI4MTgsICJuYmYiOiAxNzYyNzY3MDM0LCAiaWF0IjogMTc3MTQwNzAzNCwgImp0aSI6ICIwMDE5XzI3QkU5QkExX0MwRDNBIiwgIm9hdCI6IDE3NzE0MDcwMzQsICJwZXIiOiAxLCAiaXBfc3ViamVjdCI6ICIzNy4yNy4zNS4xODYiLCAiaXBfY29uZmlybWVyIjogIjM3LjI3LjM1LjE4NiIgfQ.hfdy3ICNE4PbTuBNWHE3BRMTrjWqt3B6OxiCc7CJKewIc52jg4LEh-SzfsHPSW1xQms9NBhKwbIX8asu9TsIDQ",
+    "SteamID": "76561198744718405"
+  }
+}
