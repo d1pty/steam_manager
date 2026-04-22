@@ -4,13 +4,13 @@ const { logInAccountWithDelay } = require('../steam/login');
 const { getBroadcastFunction } = require('../ws/websocket');
 const { sendTrades } = require('../steam/trade');
 const { logOffAccount, getTwoFactorCode } = require('../steam/login');
+const { loadInventory } = require('../steam/inventory');
 const { clients, communities, managers, accountStatus } = require('../steam/clients');
 const { insertAccount, deleteAccount, getAllAccounts, getAccountById, getItemDistribution, getAllPricedItems } = require('../db/accountModel');
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
 const SteamTotp = require('steam-totp');
-const cheerio = require('cheerio');
 
 router.get('/status', (req, res) => {
   const accounts = getAllAccounts();
@@ -404,6 +404,20 @@ router.post('/respond-confirmation', (req, res) => {
 
       res.json({ success: true, message: `Подтверждение ${accept ? 'принято' : 'отклонено'}` });
     });
+  });
+});
+
+router.get('/inventory/:botId', (req, res) => {
+  const { botId } = req.params;
+  const appId = parseInt(req.query.appId, 10) || 730;
+  const contextId = req.query.contextId || '2';
+
+  loadInventory(botId, appId, contextId, (err, inventory) => {
+    if (err) {
+      console.error(`Ошибка загрузки инвентаря (${botId}, ${appId}:${contextId}):`, err);
+      return res.status(500).json({ error: err.message });
+    }
+    res.json({ items: inventory || [] });
   });
 });
 module.exports = router;

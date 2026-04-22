@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar/Sidebar';
 import AccountPage from './components/AccountPage/AccountPage';
 import TradePage from './components/TradePage/TradePage';
 import StatsPage from './components/StatsPage/StatsPage';
+import MarketPage from './components/MarketPage/MarketPage';
 
 const { Content } = Layout;
 
@@ -81,6 +82,9 @@ const App = () => {
           )}
           {selectedTab === 'stats' && (
             <StatsPage />
+          )}
+          {selectedTab === 'market' && (
+            <MarketPage accounts={filterAccounts()} />
           )}
         </Content>
       </Layout>

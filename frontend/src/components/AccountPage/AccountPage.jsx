@@ -11,6 +11,7 @@ const AccountPage = ({ accounts, setAccounts }) => {
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [importModalVisible, setImportModalVisible] = useState(false);
 
+
   const handleAccountClick = (account) => {
     setSelectedAccount(account);
   };
@@ -83,7 +84,7 @@ const AccountPage = ({ accounts, setAccounts }) => {
 
         <Col>
           <Space>
-            <Text strong>Всего аккаунтов: {accounts.length}</Text>
+            <Text strong>Всего аккаунтов: {accounts.filter(acc => acc && acc.avatar).length}</Text>
             <Button icon={<DownloadOutlined />} onClick={handleExport}>
               Экспорт
             </Button>

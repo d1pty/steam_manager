@@ -1,6 +1,6 @@
 import React from 'react';
 import { Layout, Menu } from 'antd';
-import { UserOutlined, SwapOutlined, BarChartOutlined } from '@ant-design/icons';
+import { UserOutlined, SwapOutlined, BarChartOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 
 const { Sider } = Layout;
 
@@ -15,6 +15,11 @@ const Sidebar = ({ selectedTab, onTabChange, selectedStatus, onStatusChange }) =
       key: 'trade',
       icon: <SwapOutlined />,
       label: 'Трейд',
+    },
+    {
+      key: 'market',
+      icon: <ShoppingCartOutlined />,
+      label: 'Торговля',
     },
     {
       key: 'stats',

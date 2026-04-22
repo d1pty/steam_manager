@@ -7,21 +7,32 @@ import {
   Tooltip,
   message,
   Progress,
+  Card,
+  Empty,
+  Skeleton,
 } from 'antd';
 import {
   UserOutlined,
   PoweroffOutlined,
-  ReloadOutlined,
   DeleteOutlined,
-  CloseOutlined,
   CheckOutlined,
   StopOutlined,
 } from '@ant-design/icons';
 
-const AccountModal = ({ visible, account, onClose, onDelete }) => {
+const PREFIXES_TITLE = [
+  'Предложение обмена -',
+  'Предложение на торговой площадке -',
+];
+const PREFIXES_SENDING = [
+  'Предмет, который вы отдадите:',
+  'Продается за',
+];
+
+export default function AccountModal({ visible, account, onClose, onDelete }) {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [secondsRemaining, setSecondsRemaining] = useState(null);
   const [pendingOffers, setPendingOffers] = useState([]);
+  const [loadingConfirmations, setLoadingConfirmations] = useState(false);
 
   const fetchTwoFactorCode = async (accountId) => {
     try {
@@ -39,19 +50,25 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
   };
 
   const fetchConfirmations = useCallback(async (accountId) => {
+    setLoadingConfirmations(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/pending-confirmations?accountId=${accountId}`);
+      const response = await fetch(
+        `http://localhost:3001/api/pending-confirmations?accountId=${accountId}`
+      );
       const data = await response.json();
       setPendingOffers(data.confirmations || []);
     } catch (error) {
       console.error('Ошибка при загрузке подтверждений:', error);
+    } finally {
+      setLoadingConfirmations(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!account?.id) return;
-    fetchConfirmations(account.id);
-  }, [account, fetchConfirmations]);
+    if (account?.id && visible) {
+      fetchConfirmations(account.id);
+    }
+  }, [account, visible, fetchConfirmations]);
 
   useEffect(() => {
     if (!account?.id || !visible) return;
@@ -64,7 +81,6 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
     };
 
     fetchTwoFactorCode(account.id).then(updateTimer);
-
     const intervalId = setInterval(() => {
       updateTimer();
       if (Math.floor(Date.now() / 1000) % 30 === 0) {
@@ -117,15 +133,11 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId: account.id, confirmationId, accept }),
       });
-
       const data = await res.json();
-
       if (!res.ok || !data.success) {
-        message.error(`Не удалось ${accept ? 'принять' : 'отменить'} оффер`);
+        message.error(`Не удалось ${accept ? 'принять' : 'отменить'}`);
         return;
       }
-
-      message.success(`Оффер ${accept ? 'принят' : 'отменён'}`);
       await fetchConfirmations(account.id);
     } catch (err) {
       console.error('Ошибка сети:', err);
@@ -134,160 +146,95 @@ const AccountModal = ({ visible, account, onClose, onDelete }) => {
   };
 
   if (!account) return null;
-
   const isDisabled = account.status === 'Отключен';
 
+  const stripPrefix = (text, prefixes) => {
+    let result = text;
+    prefixes.forEach(prefix => {
+      const re = new RegExp(`^\\s*${prefix}\\s*`, 'i');
+      result = result.replace(re, '');
+    });
+    return result;
+  };
+
   return (
-    <Modal
-      open={visible}
-      title="Информация об аккаунте"
-      onCancel={onClose}
-      footer={[
-        isDisabled ? (
-          <Tooltip title="Включить аккаунт" key="enable">
-            <Button
-              type="primary"
-              icon={<ReloadOutlined />}
-              onClick={handleEnable}
-            >
-              Включить
-            </Button>
-          </Tooltip>
-        ) : (
-          <Tooltip title="Отключить аккаунт" key="disable">
-            <Button
-              type="primary"
-              icon={<PoweroffOutlined />}
-              danger
-              onClick={handleDisable}
-            >
-              Выключить
-            </Button>
-          </Tooltip>
-        ),
-        <Tooltip title="Удалить аккаунт" key="delete">
-          <Button
-            type="primary"
-            icon={<DeleteOutlined />}
-            danger
-            onClick={() => onDelete(account.id)}
-          >
-            Удалить
-          </Button>
-        </Tooltip>,
-        <Button key="close" icon={<CloseOutlined />} onClick={onClose}>
-          Закрыть
-        </Button>,
-      ]}
-    >
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <Avatar
-          size={64}
-          src={account.avatar || 'http://localhost:3001/images/defaultAvatar.jpg'}
-          icon={<UserOutlined />}
-        />
-        <div style={{ marginLeft: 16 }}>
-          <strong>{account.username}</strong>
+    <Modal open={visible} title="Информация об аккаунте" onCancel={onClose} footer={null}>
+
+      {/* Блок 1 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <Avatar size={64} src={account.avatar || 'http://localhost:3001/images/defaultAvatar.jpg'} icon={<UserOutlined />} />
           <div>
-            <Tag
-              color={
-                account.status === 'Вход выполнен'
-                  ? 'green'
-                  : account.status === 'Отключен'
-                    ? 'volcano'
-                    : 'red'
-              }
-            >
+            <div><strong style={{ fontSize: 18 }}>{account.username}</strong></div>
+            <Tag style={{ marginTop: 4 }} color={account.status === 'Вход выполнен' ? 'green' : isDisabled ? 'volcano' : 'red'}>
               {account.status}
             </Tag>
           </div>
         </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Tooltip title={isDisabled ? 'Включить аккаунт' : 'Отключить аккаунт'}>
+            <Button type="text" shape="circle" size="large" icon={<PoweroffOutlined style={{ fontSize: 20, color: isDisabled ? '#52c41a' : '#faad14' }} />} onClick={isDisabled ? handleEnable : handleDisable} />
+          </Tooltip>
+          <Tooltip title="Удалить аккаунт">
+            <Button type="text" shape="circle" size="large" danger icon={<DeleteOutlined style={{ fontSize: 20 }} />} onClick={() => onDelete(account.id)} />
+          </Tooltip>
+        </div>
       </div>
 
-      <div style={{ marginTop: 16 }}>
+      {/* Блок 2 */}
+      <div style={{ marginBottom: 24 }}>
         <strong>Текущий 2FA код:</strong>
-        <div
-          onClick={handleCopy2FACode}
-          style={{
-            cursor: 'pointer',
-            fontSize: 16,
-            padding: '8px',
-            backgroundColor: '#f0f0f0',
-            borderRadius: '4px',
-            textAlign: 'center',
-            marginTop: 4,
-          }}
-        >
+        <div onClick={handleCopy2FACode} style={{ cursor: 'pointer', fontSize: 16, padding: '8px', backgroundColor: '#f0f0f0', borderRadius: '4px', textAlign: 'center', marginTop: 4 }}>
           {twoFactorCode || 'Загрузка...'}
         </div>
-
         {secondsRemaining !== null && (
           <div style={{ marginTop: 10 }}>
-            <Progress
-              percent={(secondsRemaining / 30) * 100}
-              status="active"
-              showInfo={false}
-              strokeColor="#52c41a"
-            />
-            <div style={{ textAlign: 'center', fontSize: 12, marginTop: 5 }}>
-              Обновление через {Number(secondsRemaining).toFixed(1)} сек.
-            </div>
+            <Progress percent={(secondsRemaining / 30) * 100} status="active" showInfo={false} strokeColor="#52c41a" />
           </div>
         )}
       </div>
 
-      <div style={{ marginTop: 24 }}>
+      {/* Блок 3 */}
+      <div>
         <strong>Ожидают подтверждения:</strong>
-        {pendingOffers.length === 0 ? (
-          <div style={{ marginTop: 8, fontStyle: 'italic' }}>
-            Нет ожидающих подтверждения офферов
-          </div>
+        {loadingConfirmations ? (
+          <Skeleton active paragraph={{ rows: 3 }} />
+        ) : pendingOffers.length === 0 ? (
+          <Empty description="Нет ожидающих подтверждения/отклонения" />
         ) : (
-          pendingOffers.map(offer => (
-            <div
-              key={offer.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                marginTop: 12,
-                padding: 8,
-                border: '1px solid #f0f0f0',
-                borderRadius: 4,
-                gap: 12,
-              }}
-            >
-              <Avatar shape="square" size={48} src={offer.icon} />
-
-              <div style={{ flex: 1 }}>
-                <div><strong>{offer.title}</strong></div>
-                <div><strong>{offer.sending}</strong></div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<CheckOutlined />}
-                  onClick={() => handleRespondToOffer(offer.id, true)}
-                >
-                  Принять
-                </Button>
-                <Button
-                  type="default"
-                  size="small"
-                  danger
-                  icon={<StopOutlined />}
-                  onClick={() => handleRespondToOffer(offer.id, false)}
-                >
-                  Отменить
-                </Button>
-              </div>
-            </div>
-          ))
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16, marginTop: 12 }}>
+            {pendingOffers.map((offer) => {
+              const cleanTitle = stripPrefix(offer.title, PREFIXES_TITLE);
+              const cleanSending = stripPrefix(stripPrefix(offer.sending, PREFIXES_SENDING), []);
+              return (
+                <Card key={offer.id} size="small" style={{ backgroundColor: '#f5f5f5' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+                    <Avatar size={48} shape="square" src={offer.icon} />
+                    <div>
+                      <div><strong>{cleanTitle}</strong></div>
+                      <div>{cleanSending}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Button
+                      style={{ flex: 1, backgroundColor: '#4caf50', borderColor: '#4caf50', color: '#fff' }}
+                      size="large"
+                      icon={<CheckOutlined />}
+                      onClick={() => handleRespondToOffer(offer.id, true)}
+                    />
+                    <Button
+                      style={{ flex: 1, backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: '#fff' }}
+                      size="large"
+                      icon={<StopOutlined />}
+                      onClick={() => handleRespondToOffer(offer.id, false)}
+                    />
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
         )}
       </div>
     </Modal>
   );
-};
-
-export default AccountModal;
+}

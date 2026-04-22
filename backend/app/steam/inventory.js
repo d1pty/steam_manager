@@ -14,4 +14,21 @@ const loadInventoryAfterLogin = (botId) => {
   });
 };
 
-module.exports = { loadInventoryAfterLogin };
+/**
+ * Загружает инвентарь для любого приложения
+ * @param {string} botId 
+ * @param {number} appId 
+ * @param {number|string} contextId 
+ * @param {function} cb (err, inventory)
+ */
+const loadInventory = (botId, appId, contextId, cb) => {
+  const manager = managers[botId];
+  if (!manager) {
+    return cb(new Error(`Менеджер с botId=${botId} не найден`));
+  }
+  manager.loadInventory(appId, contextId, true, (err, inventory) => {
+    cb(err, inventory);
+  });
+};
+
+module.exports = {loadInventory, loadInventoryAfterLogin };
