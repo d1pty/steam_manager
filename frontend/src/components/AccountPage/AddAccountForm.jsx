@@ -7,8 +7,7 @@ const AddAccountForm = ({ onSuccess }) => {
     const [mafileContent, setMafileContent] = useState(null);
     const [fileList, setFileList] = useState([]);
     const [modalVisible, setModalVisible] = useState(false);
-
-    // Обработка загрузки файла
+    
     const handleFileChange = (file) => {
         const reader = new FileReader();
         reader.onload = e => {
@@ -17,16 +16,14 @@ const AddAccountForm = ({ onSuccess }) => {
         };
         reader.readAsText(file);
         setFileList([file]);
-        return false; // не загружаем файл на сервер
+        return false;
     };
 
-    // Удаление файла
     const handleRemove = () => {
         setMafileContent(null);
         setFileList([]);
     };
 
-    // Отправка формы
     const handleSubmit = async (values) => {
         if (!mafileContent) {
             message.error('Загрузите maFile');
@@ -75,7 +72,6 @@ const AddAccountForm = ({ onSuccess }) => {
                     setFileList([]);
                     form.resetFields();
                 }}
-                style={{ marginBottom: 16 }}
             >
                 Добавить аккаунт
             </Button>
