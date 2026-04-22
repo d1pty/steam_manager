@@ -21,7 +21,7 @@ const inventoryConfigs = {
   steam: { appId: 753, contextId: 6, label: 'Steam Items' }
 };
 
-const API_TOKEN = 'IDiGAlrAmqXEUNqsR34wFBHqXo7I8HDn8mNiBZq5LrAoH';
+const API_TOKEN = 'API_TOKEN';
 
 const STEAM_CURRENCY_MAP = {
   1: 'USD',
