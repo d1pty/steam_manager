@@ -73,6 +73,8 @@ const logInAccountWithDelay = (botId, broadcastStatus) => {
     client.once('webSession', async (sid, cookies) => {
       manager.setCookies(cookies);
       community.setCookies(cookies);
+      community.sessionID = sid;
+      manager._cookies = cookies;
       await delay(2000);
       loadInventoryAfterLogin(botId);
     });
