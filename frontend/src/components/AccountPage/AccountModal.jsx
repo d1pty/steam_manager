@@ -1,32 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import {
-  Modal,
-  Button,
-  Avatar,
-  Tag,
-  Tooltip,
-  message,
-  Progress,
-  Card,
-  Empty,
-  Skeleton,
-} from 'antd';
-import {
-  UserOutlined,
-  PoweroffOutlined,
-  DeleteOutlined,
-  CheckOutlined,
-  StopOutlined,
-} from '@ant-design/icons';
+import {Modal,Button,Avatar,Tag,Tooltip,message,Progress,} from 'antd';
+import {UserOutlined,PoweroffOutlined,DeleteOutlined,} from '@ant-design/icons';
+import PendingConfirmations from './PendingConfirmations';
 
-const PREFIXES_TITLE = [
-  'Предложение обмена -',
-  'Предложение на торговой площадке -',
-];
-const PREFIXES_SENDING = [
-  'Предмет, который вы отдадите:',
-  'Продается за',
-];
 
 export default function AccountModal({ visible, account, onClose, onDelete }) {
   const [twoFactorCode, setTwoFactorCode] = useState('');
@@ -98,10 +74,10 @@ export default function AccountModal({ visible, account, onClose, onDelete }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId: account.id }),
       });
-      message.success('Аккаунт отключён');
+      message.success('Аккаунт выключен');
     } catch (error) {
       console.error(error);
-      message.error('Ошибка при отключении');
+      message.error('Ошибка при выключении');
     }
   };
 
@@ -126,36 +102,8 @@ export default function AccountModal({ visible, account, onClose, onDelete }) {
       .catch(() => message.error('Ошибка копирования'));
   };
 
-  const handleRespondToOffer = async (confirmationId, accept) => {
-    try {
-      const res = await fetch('http://localhost:3001/api/respond-confirmation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: account.id, confirmationId, accept }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        message.error(`Не удалось ${accept ? 'принять' : 'отменить'}`);
-        return;
-      }
-      await fetchConfirmations(account.id);
-    } catch (err) {
-      console.error('Ошибка сети:', err);
-      message.error('Сетевая ошибка');
-    }
-  };
-
   if (!account) return null;
-  const isDisabled = account.status === 'Отключен';
-
-  const stripPrefix = (text, prefixes) => {
-    let result = text;
-    prefixes.forEach(prefix => {
-      const re = new RegExp(`^\\s*${prefix}\\s*`, 'i');
-      result = result.replace(re, '');
-    });
-    return result;
-  };
+  const isDisabled = account.status === 'Выключен';
 
   return (
     <Modal open={visible} title="Информация об аккаунте" onCancel={onClose} footer={null}>
@@ -172,7 +120,7 @@ export default function AccountModal({ visible, account, onClose, onDelete }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Tooltip title={isDisabled ? 'Включить аккаунт' : 'Отключить аккаунт'}>
+          <Tooltip title={isDisabled ? 'Включить аккаунт' : 'Выключить аккаунт'}>
             <Button type="text" shape="circle" size="large" icon={<PoweroffOutlined style={{ fontSize: 20, color: isDisabled ? '#52c41a' : '#faad14' }} />} onClick={isDisabled ? handleEnable : handleDisable} />
           </Tooltip>
           <Tooltip title="Удалить аккаунт">
@@ -196,44 +144,12 @@ export default function AccountModal({ visible, account, onClose, onDelete }) {
 
       {/* Блок 3 */}
       <div>
-        <strong>Ожидают подтверждения:</strong>
-        {loadingConfirmations ? (
-          <Skeleton active paragraph={{ rows: 3 }} />
-        ) : pendingOffers.length === 0 ? (
-          <Empty description="Нет ожидающих подтверждения/отклонения" />
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16, marginTop: 12 }}>
-            {pendingOffers.map((offer) => {
-              const cleanTitle = stripPrefix(offer.title, PREFIXES_TITLE);
-              const cleanSending = stripPrefix(stripPrefix(offer.sending, PREFIXES_SENDING), []);
-              return (
-                <Card key={offer.id} size="small" style={{ backgroundColor: '#f5f5f5' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
-                    <Avatar size={48} shape="square" src={offer.icon} />
-                    <div>
-                      <div><strong>{cleanTitle}</strong></div>
-                      <div>{cleanSending}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <Button
-                      style={{ flex: 1, backgroundColor: '#4caf50', borderColor: '#4caf50', color: '#fff' }}
-                      size="large"
-                      icon={<CheckOutlined />}
-                      onClick={() => handleRespondToOffer(offer.id, true)}
-                    />
-                    <Button
-                      style={{ flex: 1, backgroundColor: '#ff4d4f', borderColor: '#ff4d4f', color: '#fff' }}
-                      size="large"
-                      icon={<StopOutlined />}
-                      onClick={() => handleRespondToOffer(offer.id, false)}
-                    />
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+        <PendingConfirmations
+          accountId={account.id}
+          fetchConfirmations={fetchConfirmations}
+          pendingOffers={pendingOffers}
+          loadingConfirmations={loadingConfirmations}
+       />
       </div>
     </Modal>
   );

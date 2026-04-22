@@ -84,7 +84,6 @@ const AccountPage = ({ accounts, setAccounts }) => {
 
         <Col>
           <Space>
-            <Text strong>Всего аккаунтов: {accounts.filter(acc => acc && acc.avatar).length}</Text>
             <Button icon={<DownloadOutlined />} onClick={handleExport}>
               Экспорт
             </Button>

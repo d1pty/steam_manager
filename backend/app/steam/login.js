@@ -104,7 +104,7 @@ const logOffAccount = botId => {
   if (client) {
     client.logOff();
     accountStatus[botId] = accountStatus[botId] || {};
-    accountStatus[botId].status = 'Отключен';
+    accountStatus[botId].status = 'Выключен';
   }
 };
 

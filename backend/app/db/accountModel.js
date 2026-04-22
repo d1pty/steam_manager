@@ -108,18 +108,34 @@ const getSentItemsByUsername = (username) => {
   return stmt.all(username);
 };
 
-const markItemSold = (sentItemId, soldTimestamp) => {
-  const stmt = db.prepare('UPDATE sent_items SET sold_at = ? WHERE id = ?');
-  stmt.run(soldTimestamp, sentItemId);
-};
-const updateItemPrice = (sentItemId, newPrice) => {
-  const stmt = db.prepare('UPDATE sent_items SET price = ? WHERE id = ?');
-  stmt.run(newPrice, sentItemId);
+const markItemSoldByName = (itemName, soldAtDate, price) => {
+  const stmt = db.prepare(`
+    SELECT id FROM sent_items
+    WHERE item_name = ?
+      AND sold_at IS NULL
+    ORDER BY sent_at ASC
+    LIMIT 1
+  `);
+  const item = stmt.get(itemName);
+
+  if (!item) return false;
+
+  const updateStmt = db.prepare(`
+    UPDATE sent_items
+    SET sold_at = ?, price = ?
+    WHERE id = ?
+  `);
+  updateStmt.run(soldAtDate, price, item.id);
+
+  return true;
 };
 
 const getItemDistribution = (startDate, endDate) => {
   let query = `
-    SELECT item_name, COUNT(*) AS count
+    SELECT 
+      item_name, 
+      COUNT(*) AS count,
+      SUM(price) AS total_price
     FROM sent_items
   `;
 
@@ -156,8 +172,7 @@ module.exports = {
   deleteAccount,
   insertSentItem,
   getSentItemsByUsername,
-  markItemSold,
-  updateItemPrice,
+  markItemSoldByName,
   getItemDistribution,
   getAllPricedItems
 };

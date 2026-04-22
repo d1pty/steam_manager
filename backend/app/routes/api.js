@@ -6,13 +6,13 @@ const { sendTrades } = require('../steam/trade');
 const { logOffAccount, getTwoFactorCode } = require('../steam/login');
 const { loadInventory } = require('../steam/inventory');
 const { clients, communities, managers, accountStatus } = require('../steam/clients');
-const { insertAccount, deleteAccount, getAllAccounts, getAccountById, getItemDistribution, getAllPricedItems } = require('../db/accountModel');
+const { insertAccount, deleteAccount, getAllAccounts, getAccountById, getItemDistribution, getAllPricedItems, markItemSoldByName } = require('../db/accountModel');
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
 const SteamTotp = require('steam-totp');
-const NodeCache = require('node-cache');
 const moment = require('moment');
+const request = require('request');
 
 // Global inventory definitions
 const inventoryConfigs = {
@@ -20,8 +20,56 @@ const inventoryConfigs = {
   dota2: { appId: 570, contextId: 2, label: 'Dota 2' },
   steam: { appId: 753, contextId: 6, label: 'Steam Items' }
 };
-// Кеш цен: хранит до 1000 записей по 60 секунд
-const priceCache = new NodeCache({ stdTTL: 60, maxKeys: 1000 });
+
+const API_TOKEN = 'IDiGAlrAmqXEUNqsR34wFBHqXo7I8HDn8mNiBZq5LrAoH';
+
+const STEAM_CURRENCY_MAP = {
+  1: 'USD',
+  2: 'GBP',
+  3: 'EUR',
+  7: 'CHF',
+  8: 'RUB',
+  9: 'JPY',
+  10: 'NOK',
+  11: 'IDR',
+  12: 'MYR',
+  13: 'PHP',
+  14: 'SGD',
+  15: 'THB',
+  16: 'VND',
+  17: 'KRW',
+  18: 'UAH',
+  19: 'MXN',
+  20: 'CAD',
+  21: 'AUD'
+  // …add any others you need
+};
+
+function fetchRateToRUB(steamCode, cb) {
+  request.get({
+    uri: 'https://api.steam-currency.ru/v3/currency',
+    headers: {
+      accept: '*/*',
+      'api-token': API_TOKEN
+    },
+    json: true
+  }, (err, _resp, body) => {
+    if (err) return cb(err);
+    if (!body?.data) return cb(new Error('Bad currency API response'));
+
+    // если валюта уже RUB
+    if (steamCode === 'RUB') {
+      return cb(null, 1);
+    }
+
+    const pair = body.data.find(x => x.currency_pair === `${steamCode}:RUB`);
+    if (!pair) {
+      return cb(new Error(`Pair ${steamCode}:RUB not found`));
+    }
+
+    cb(null, pair.close_price);
+  });
+}
 
 router.get('/status', (req, res) => {
   const accounts = getAllAccounts();
@@ -143,7 +191,7 @@ router.post('/disable-account', async (req, res) => {
   const { accountId } = req.body;
 
   if (!accountId) {
-    return res.status(400).json({ error: 'Нет ID аккаунта для отключения' });
+    return res.status(400).json({ error: 'Нет ID аккаунта для выключения' });
   }
 
   if (!accountStatus[accountId]) {
@@ -155,7 +203,7 @@ router.post('/disable-account', async (req, res) => {
   const broadcastStatus = getBroadcastFunction();
   broadcastStatus(accountStatus);
 
-  res.status(200).json({ message: 'Аккаунт отключен', accountStatus });
+  res.status(200).json({ message: 'Аккаунт выключен', accountStatus });
 });
 
 router.post('/enable-account', async (req, res) => {
@@ -313,6 +361,7 @@ router.get('/item-distribution', (req, res) => {
     const result = rawData.map(item => ({
       name: item.item_name,
       value: item.count,
+      totalPrice: item.total_price || 0,  // сумма стоимости, если null — 0
     }));
 
     res.json(result);
@@ -349,6 +398,13 @@ router.get('/pending-confirmations', (req, res) => {
     return res.status(500).json({ error: 'Не найден identitySecret для подтверждений' });
   }
 
+  // 1) Берём валюту бота
+  const currencyId = clients[accountId].wallet?.currency;
+  const steamCode = STEAM_CURRENCY_MAP[currencyId];
+  if (!steamCode) {
+    return res.status(500).json({ error: `Unsupported currencyId ${currencyId}` });
+  }
+
   const time = SteamTotp.time();
   const key = SteamTotp.getConfirmationKey(lolka, time, 'conf');
 
@@ -361,14 +417,47 @@ router.get('/pending-confirmations', (req, res) => {
       });
     }
 
-    const filteredConfirmations = confirmations.map(conf => ({
-      id: conf.id,
-      title: conf.title,
-      sending: conf.sending,
-      icon: conf.icon
-    }));
+    // 2) Запрашиваем курс единицы Steam-валюты в рубли
+    fetchRateToRUB(steamCode, (err, rateToRub) => {
+      if (err) {
+        console.error('Ошибка получения курса:', err);
+        // Если не удалось получить курс, возвращаем без priceRub
+        const simple = confirmations.map(conf => ({
+          id: conf.id,
+          title: conf.title,
+          sending: conf.sending,
+          icon: conf.icon,
+          priceRub: null
+        }));
+        return res.json({ confirmations: simple });
+      }
 
-    res.json({ confirmations: filteredConfirmations });
+      // 3) Для каждой confirmation парсим число и конвертим
+      const result = confirmations.map(conf => {
+        const m = conf.title.match(/([\d]+[.,]\d{1,2})\s*[^0-9\s]?/); // захватываем число + валюту
+        let priceRub = null;
+        let updatedTitle = conf.title;
+
+        if (m) {
+          const num = parseFloat(m[1].replace(',', '.'));
+          priceRub = Math.round(num * rateToRub * 100) / 100;
+          const rubStr = `${priceRub.toFixed(2)}₽`;
+
+          // Заменяем всю найденную подстроку (например, "58,96₴") на "123.45₽"
+          updatedTitle = conf.title.replace(m[0], rubStr);
+        }
+
+        return {
+          id: conf.id,
+          title: updatedTitle,
+          sending: conf.sending,
+          icon: conf.icon,
+          priceRub
+        };
+      });
+
+      res.json({ confirmations: result });
+    });
   });
 });
 
@@ -487,13 +576,19 @@ router.get('/inventory/:botId/history', (req, res) => {
   const { botId } = req.params;
   const appId = parseInt(req.query.appId, 10) || 730;
   const marketHashName = req.query.market_hash_name;
-
   if (!marketHashName) {
     return res.status(400).json({ error: 'market_hash_name is required' });
   }
+
   const community = communities[botId];
   if (!community) {
     return res.status(404).json({ error: `Steam client for bot ${botId} not found` });
+  }
+
+  const currencyId = clients[botId].wallet?.currency;
+  const steamCode = STEAM_CURRENCY_MAP[currencyId];
+  if (!steamCode) {
+    return res.status(500).json({ error: `Unsupported currencyId ${currencyId}` });
   }
 
   community.request.get({
@@ -502,97 +597,140 @@ router.get('/inventory/:botId/history', (req, res) => {
     json: true
   }, (err, _resp, body) => {
     if (err) {
-      console.error(`Error fetching history for ${marketHashName}:`, err);
+      console.error(`Error fetching history:`, err);
       return res.status(500).json({ error: 'Failed to fetch price history' });
     }
-    if (!body || !body.success || !Array.isArray(body.prices)) {
+    if (!body.success || !Array.isArray(body.prices)) {
       return res.json({ history: [] });
     }
 
-    const now = moment.utc();
-    const filteredHistory = body.prices.filter(([dateStr]) => {
-      const normalizedDate = dateStr.replace(/\u00A0/g, ' ');
-      const timestamp = moment.utc(normalizedDate, "MMM DD YYYY HH: +0").valueOf();
-      return now.diff(moment(timestamp), 'days') <= 7;
+    fetchRateToRUB(steamCode, (err, rateToRub) => {
+      if (err) {
+        console.error('Error fetching currency rate:', err);
+        return res.status(500).json({ error: 'Failed to fetch currency rate' });
+      }
+
+      const now = moment.utc();
+      const history = body.prices
+        .map(([dateStr, priceNum]) => {
+          const norm = dateStr.replace(/\u00A0/g, ' ');
+          const ts = moment.utc(norm, 'MMM D YYYY HH:mm Z').valueOf();
+          return { ts, price: parseFloat(priceNum) };
+        })
+        .filter(({ ts }) => now.diff(ts, 'days') <= 7)
+        .map(({ ts, price }) => ({
+          t: ts,
+          y: Math.round(price * rateToRub * 100) / 100
+        }));
+
+      res.json({ history });
     });
-
-    const userCurrencyRate = 1.95; // допустим, 1 гривна = 1.95 рубля
-
-    const history = filteredHistory.map(([dateStr, priceNum]) => {
-      const normalizedDate = dateStr.replace(/\u00A0/g, ' ');
-      const timestamp = moment.utc(normalizedDate, "MMM DD YYYY HH: +0").valueOf();
-      const price = typeof priceNum === 'string' ? parseFloat(priceNum) : priceNum;
-
-      return {
-        t: timestamp,
-        y: Math.round(price * userCurrencyRate * 100) / 100 
-      };
-    });
-
-    res.json({ history });
   });
 });
 
 
-
-// Переводим цену в центы (для $1.00 → 100)
+/// Переводим в «центы» для Steam API
 function toSteamPrice(price) {
   return Math.round(price * 100);
 }
 
-router.post('/list-item', async (req, res) => {
-  const { accountId, item, price } = req.body;
-  if (!accountId || !item || typeof price !== 'number') {
+router.post('/list-item', (req, res) => {
+  const { accountId, item, price: priceRub, autoConfirm, statsEnabled } = req.body;
+  if (!accountId || !item || typeof priceRub !== 'number') {
     return res.status(400).json({ error: 'Некорректные данные' });
   }
 
   const community = communities[accountId];
   if (!community) {
-    return res.status(404).json({ error: 'Бот не найден или не авторизован' });
+    return res.status(404).json({ error: 'Аккаунт не найден или не авторизован' });
   }
 
-  // Цена в «центах»
-  const steamPrice = toSteamPrice(price);
+  const currencyId = clients[accountId].wallet?.currency;
+  const steamCode = STEAM_CURRENCY_MAP[currencyId];
+  if (!steamCode) {
+    return res.status(500).json({ error: `Unsupported currencyId ${currencyId}` });
+  }
 
-  // Тело формы, которое Steam ожидает на /market/sellitem/
-  const form = {
-    sessionid: community.sessionID,   // SteamCommunity автоматически его установил
-    currency: 1,                      // код валюты (1 — USD; для руб. 5)
-    appid:     item.appid,            // например, 730
-    contextid: item.contextid,        // обычно 2
-    assetid:   item.id,               // ваш assetid
-    amount:    1,                     // выставляем одно «количество»
-    price:     steamPrice             // в центах
-  };
-
-  // Важный заголовок — Referer на страницу лота, иначе Steam может отвергнуть запрос.
-  const referer = `https://steamcommunity.com/market/listings/${item.appid}/${encodeURIComponent(item.market_hash_name)}`;
-
-  community.request.post({
-    uri:     'https://steamcommunity.com/market/sellitem/',
-    form,
-    headers: { Referer: referer },
-    json:    true
-  }, (err, httpResponse, body) => {
-    if (err || !body || body.success !== 1) {
-      console.error('Ошибка HTTP-запроса к /market/sellitem/:', err || body);
-      return res.status(500).json({ error: 'Не удалось выставить лот через веб-интерфейс' });
+  fetchRateToRUB(steamCode, (err, rateToRub) => {
+    if (err) {
+      console.error('Currency rate error:', err);
+      return res.status(500).json({ error: 'Не удалось получить курс валюты' });
     }
 
-    // Steam вернёт JSON: { success:1, needs_mobile_confirmation:0, price: "...", market_name: "...", assetid: "...", id: <listingid> }
-    const listingId = body.id;
+    const priceInAccountCurrency = priceRub / rateToRub;
+    const steamPrice = toSteamPrice(priceInAccountCurrency);
 
-    // Сохраняем в БД
-    insertListedItem(accountId, {
-      listing_id: listingId,
-      game_id:    `${item.appid}_${item.contextid}`,
-      assetid:    item.id,
-      item_name:  item.name,
-      price,
-      listed_at:  new Date().toISOString()
+    const form = {
+      sessionid: community.sessionID,
+      currency: currencyId,
+      appid: item.appid,
+      contextid: item.contextid,
+      assetid: item.id,
+      amount: 1,
+      price: steamPrice
+    };
+    const referer = `https://steamcommunity.com/market/listings/`
+      + `${item.appid}/${encodeURIComponent(item.market_hash_name)}`;
+
+    community.request.post({
+      uri: 'https://steamcommunity.com/market/sellitem/',
+      form,
+      headers: { Referer: referer },
+      json: true
+    }, (err, _httpResp, body) => {
+      const isSuccess = body && (body.success === 1 || body.success === true);
+      if (err || !isSuccess) {
+        console.error('Sell error:', err || body);
+        return res.status(500).json({ error: 'Не удалось выставить лот' });
+      }
+
+      const listingId = body.id;
+      const needsConfirmation = !!body.needs_mobile_confirmation;
+
+      if (needsConfirmation && autoConfirm) {
+        try {
+          const account = getAccountById(accountId);
+          const identitySecret = account.lolka;
+          const t = SteamTotp.time();
+          const confKey = SteamTotp.getConfirmationKey(identitySecret, t, 'conf');
+
+          community.getConfirmations(t, confKey, (err, confs) => {
+            if (err) throw err;
+            const target = confs.find(c =>
+              c.type === 3 && c.sending === item.name
+            );
+            if (!target) throw new Error('Не нашли confirmation');
+            const allowKey = SteamTotp.getConfirmationKey(identitySecret, t, 'allow');
+            target.respond(t, allowKey, true, err => {
+              if (err) throw err;
+              if (statsEnabled) {
+                const soldAt = new Date().toISOString().split('T')[0];
+                markItemSoldByName(item.name, soldAt, priceRub);
+              }
+              return res.json({ success: true, autoConfirmed: true });
+            });
+          });
+        } catch (e) {
+          console.error('Auto-confirm error:', e);
+          return res.json({
+            success: true,
+            listingId,
+            autoConfirmed: false,
+            error: e.message
+          });
+        }
+      } else {
+        if (statsEnabled) {
+          const soldAt = new Date().toISOString().split('T')[0];
+          markItemSoldByName(item.name, soldAt, priceRub);
+        }
+        return res.json({
+          success: true,
+          listingId,
+          needsMobileConfirmation: needsConfirmation
+        });
+      }
     });
-
-    return res.json({ success: true, listingId });
   });
 });
 module.exports = router;

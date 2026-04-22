@@ -42,14 +42,17 @@ const App = () => {
   }, []);
 
   const filterAccounts = () => {
-    if (selectedStatus === 'online') {
+  switch (selectedStatus) {
+    case 'online':
       return accounts.filter(a => a.status === 'Вход выполнен');
-    }
-    if (selectedStatus === 'offline') {
+    case 'offline':
       return accounts.filter(a => a.status === 'Ожидание входа');
-    }
-    return accounts;
-  };
+    case 'disabled':
+      return accounts.filter(a => a.status === 'Выключен');
+    default:
+      return accounts;
+  }
+};
 
   const handleSendTrade = async ({ link, selected }) => {
     try {
@@ -63,6 +66,12 @@ const App = () => {
       alert('Ошибка при отправке');
     }
   };
+  const statusCounts = {
+    online: accounts.filter(a => a.status === 'Вход выполнен').length,
+    offline: accounts.filter(a => a.status === 'Ожидание входа').length,
+    disabled: accounts.filter(a => a.status === 'Выключен').length,
+    all: accounts.length,
+  };
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -71,6 +80,7 @@ const App = () => {
         onTabChange={setSelectedTab}
         selectedStatus={selectedStatus}
         onStatusChange={setSelectedStatus}
+        statusCounts={statusCounts}
       />
       <Layout style={{ padding: '0 24px 24px' }}>
         <Content style={{ padding: 24, margin: 0, minHeight: 280 }}>

@@ -5,7 +5,7 @@ import { InboxOutlined } from '@ant-design/icons';
 const { Dragger } = Upload;
 const { TextArea } = Input;
 
-const ImportAccountsModal = ({ visible, onClose}) => {
+const ImportAccountsModal = ({ visible, onClose }) => {
   const [fileList, setFileList] = useState([]);
   const [accsText, setAccsText] = useState('');
 
@@ -32,7 +32,7 @@ const ImportAccountsModal = ({ visible, onClose}) => {
       const maFiles = [];
 
       accsText.split('\n').forEach(line => {
-        const [username, password] = line.trim().split(':');
+        const [username, password] = line.trim().split(/[:; ]/); // разделитель может быть :, ; или пробел
         if (username && password) accounts.push({ username, password });
       });
 

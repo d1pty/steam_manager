@@ -1,64 +1,31 @@
-// src/components/AccountInventory.jsx
-
 import React, { useState, useEffect } from 'react';
-import { Line } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Tooltip,
-  Legend,
-  TimeScale
-} from 'chart.js';
-import 'chartjs-adapter-date-fns';
-
 import SelectedItemsModal from './SelectedItemsModal';
-import {
-  Tabs,
-  Row,
-  Col,
-  Card,
-  InputNumber,
-  Button,
-  Typography,
-  Spin,
-  message,
-} from 'antd';
+import PriceHistoryChart from './PriceHistoryChart';
+import { Tabs, Row, Col, Card, InputNumber, Button, Typography, Spin, message, Checkbox } from 'antd';
 
 const { Title, Text } = Typography;
 
-// Регистрируем Chart.js
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  TimeScale,
-  Tooltip,
-  Legend
-);
+const FEE_RATE = 0.15;
 
 const AccountInventory = ({ account, onBack }) => {
   const [inventories, setInventories] = useState([]);
   const [tab, setTab] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
-
-  const [listingPrices, setListingPrices] = useState({});
+  const [listingPrices, setListingPrices] = useState({});    // цена для покупателя
+  const [sellerPrices, setSellerPrices] = useState({});      // сумма для продавца
   const [marketPrices, setMarketPrices] = useState({});
   const [priceLoading, setPriceLoading] = useState(false);
-
   const [priceHistory, setPriceHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
-
-  // 1) Доступные инвентаря
+  const [pendingConfirmations, setPendingConfirmations] = useState(new Set());
+  const [statsEnabled, setStatsEnabled] = useState(false);
+  const [autoConfirm, setAutoConfirm] = useState(false);
+  // Загрузка доступных инвентарей
   const fetchAvailableInventories = async () => {
     try {
       const res = await fetch(
@@ -74,7 +41,7 @@ const AccountInventory = ({ account, onBack }) => {
     }
   };
 
-  // 2) Сам инвентарь
+  // Загрузка предметов конкретного инвентаря
   const fetchInventory = async (inventoryKey) => {
     const config = inventories.find(i => i.key === inventoryKey);
     if (!config) return;
@@ -86,7 +53,12 @@ const AccountInventory = ({ account, onBack }) => {
       const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch inventory');
       const data = await response.json();
-      setItems(data.items || []);
+      const itemsWithAppId = (data.items || []).map(i => ({
+        ...i,
+        appId: config.appId,
+        contextId: config.contextId
+      }));
+      setItems(itemsWithAppId);
       setSelectedItem(null);
       setSelectedItems([]);
       setSelectionMode(false);
@@ -98,11 +70,11 @@ const AccountInventory = ({ account, onBack }) => {
     }
   };
 
-  // 3) Текущая цена при выборе
+  // Загрузка текущей цены при выборе
   useEffect(() => {
     if (!selectedItem) return;
     const id = selectedItem.id;
-    if (marketPrices[id] || priceLoading) return;
+    if (marketPrices[id]) return;
     const cfg = inventories.find(i => i.key === tab);
     if (!cfg) return;
 
@@ -125,9 +97,9 @@ const AccountInventory = ({ account, onBack }) => {
         message.error('Ошибка при получении цены');
       })
       .finally(() => setPriceLoading(false));
-  }, [selectedItem, account.id, tab, inventories, marketPrices, priceLoading]);
+  }, [selectedItem, account.id, tab, inventories, marketPrices]);
 
-  // 4) История цен при выборе — теперь body.history = [{ t, y }, …]
+  // Загрузка истории цен
   useEffect(() => {
     if (!selectedItem) return;
     const cfg = inventories.find(i => i.key === tab);
@@ -142,11 +114,7 @@ const AccountInventory = ({ account, onBack }) => {
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data.history)) {
-          const parsed = data.history
-            .map(({ t, y }) => ({
-              x: new Date(t),
-              y
-            }));
+          const parsed = data.history.map(({ t, y }) => ({ x: new Date(t), y }));
           setPriceHistory(parsed);
         } else {
           setPriceHistory([]);
@@ -163,12 +131,18 @@ const AccountInventory = ({ account, onBack }) => {
   useEffect(() => {
     fetchAvailableInventories();
   }, []);
+
   useEffect(() => {
     if (!tab) return;
     fetchInventory(tab);
   }, [tab, inventories]);
 
+  // Обработка выставления лота
   const handleListItem = async (item) => {
+    console.log(item)
+    console.log(account.id)
+    console.log(sellerPrices[item.id])
+    console.log(autoConfirm)
     try {
       const response = await fetch('http://localhost:3001/api/list-item', {
         method: 'POST',
@@ -176,21 +150,31 @@ const AccountInventory = ({ account, onBack }) => {
         body: JSON.stringify({
           accountId: account.id,
           item,
-          price: listingPrices[item.id] || 0
-        })
+          price: sellerPrices[item.id],
+          autoConfirm,
+          statsEnabled
+        }),
       });
-      if (!response.ok) throw new Error();
-      message.success('Лот выставлен');
-    } catch {
-      message.error('Ошибка при выставлении лота');
+
+      const data = await response.json();
+      if (!response.ok) throw data;
+
+      if (data.needsMobileConfirmation) {
+        setPendingConfirmations(prev => new Set(prev).add(item.id));
+        message.success(`${item.name} выставлен, ожидает подтверждения`);
+      } else {
+        message.success(`${item.name} выставлен`);
+        fetchInventory(tab);
+      }
+    } catch (err) {
+      console.error(err);
+      message.error(`Ошибка выставления лота для ${item.name}`);
     }
   };
 
   const toggleSelectItem = key => {
     setSelectedItems(prev =>
-      prev.includes(key)
-        ? prev.filter(k => k !== key)
-        : [...prev, key]
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
     );
   };
 
@@ -199,38 +183,24 @@ const AccountInventory = ({ account, onBack }) => {
     setSelectedItems(items.map(i => i.id));
   };
 
-  // Настройки графика
-  const chartData = {
-    datasets: [{
-      label: 'Цена, ₽',
-      data: priceHistory,
-      fill: false,
-      tension: 0.1,
-    }]
-  };
-  const chartOptions = {
-    scales: {
-      x: {
-        type: 'time',
-        time: { unit: 'day', tooltipFormat: 'dd MMM yyyy' },
-        title: { display: true, text: 'Дата' }
-      },
-      y: {
-        beginAtZero: false,
-        title: { display: true, text: 'Цена, ₽' }
-      }
-    },
-    plugins: { legend: { display: false } }
-  };
-
   return (
     <>
-      <Button onClick={onBack} style={{ marginBottom: 16 }}>
+      <Button onClick={onBack}>
         ← Назад к списку аккаунтов
       </Button>
-      <Title level={4} style={{ marginBottom: 8 }}>
-        Инвентарь: {account.username || account.id}
-      </Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Title level={4} style={{ marginBottom: 8 }}>
+          Инвентарь: {account.username || account.id}
+        </Title>
+        <div style={{ display: 'flex', gap: 16 }}>
+          <Checkbox checked={statsEnabled} onChange={e => setStatsEnabled(e.target.checked)}>
+            Записывать в статистику
+          </Checkbox>
+          <Checkbox checked={autoConfirm} onChange={e => setAutoConfirm(e.target.checked)}>
+            Авто-подтверждение
+          </Checkbox>
+        </div>
+      </div>
 
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
         <Col>
@@ -264,19 +234,20 @@ const AccountInventory = ({ account, onBack }) => {
               {items.map(item => {
                 const key = item.id;
                 const isSel = selectedItems.includes(key);
+                const isPending = pendingConfirmations.has(key);
                 return (
                   <Col key={key} xs={6} sm={4} md={3}>
                     <Card
                       hoverable
                       onClick={() =>
-                        selectionMode
-                          ? toggleSelectItem(key)
-                          : setSelectedItem(item)
+                        selectionMode ? toggleSelectItem(key) : setSelectedItem(item)
                       }
                       style={{
                         padding: 4,
                         textAlign: 'center',
-                        border: isSel ? '2px solid #1890ff' : undefined
+                        border: isSel ? '2px solid #1890ff' : undefined,
+                        background: isPending ? '#f5f5f5' : undefined,
+                        opacity: isPending ? 0.6 : 1
                       }}
                     >
                       <img
@@ -296,10 +267,9 @@ const AccountInventory = ({ account, onBack }) => {
               {!selectionMode ? (
                 <Button onClick={() => setSelectionMode(true)}>Выбрать</Button>
               ) : (
-                <Button onClick={() => {
-                  setSelectionMode(false);
-                  setSelectedItems([]);
-                }}>Отмена</Button>
+                <Button onClick={() => { setSelectionMode(false); setSelectedItems([]); }}>
+                  Отмена
+                </Button>
               )}
               <Button onClick={handleToggleSelectAll}>Выбрать все</Button>
             </div>
@@ -328,16 +298,39 @@ const AccountInventory = ({ account, onBack }) => {
                   )}
                 </div>
 
-                <Text type="secondary">Укажите свою цену:</Text>
-                <InputNumber
-                  min={0}
-                  style={{ width: '100%', marginBottom: 12 }}
-                  placeholder="Цена"
-                  value={listingPrices[selectedItem.id]}
-                  onChange={val =>
-                    setListingPrices(prev => ({ ...prev, [selectedItem.id]: val }))
-                  }
-                />
+                <Row gutter={8} style={{ marginBottom: 12 }}>
+                  <Col span={12}>
+                    <Text type="secondary">Вы получите:</Text>
+                    <InputNumber
+                      min={0}
+                      style={{ width: '100%' }}
+                      placeholder="Сумма"
+                      value={sellerPrices[selectedItem.id]}
+                      onChange={val => {
+                        const sell = val || 0;
+                        setSellerPrices(prev => ({ ...prev, [selectedItem.id]: sell }));
+                        const price = +(sell * (1 + FEE_RATE)).toFixed(2);
+                        setListingPrices(prev => ({ ...prev, [selectedItem.id]: price }));
+                      }}
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Text type="secondary">Покупатель заплатит:</Text>
+                    <InputNumber
+                      min={0}
+                      style={{ width: '100%' }}
+                      placeholder="Цена"
+                      value={listingPrices[selectedItem.id]}
+                      onChange={val => {
+                        const price = val || 0;
+                        setListingPrices(prev => ({ ...prev, [selectedItem.id]: price }));
+                        const sell = +(price / (1 + FEE_RATE)).toFixed(2);
+                        setSellerPrices(prev => ({ ...prev, [selectedItem.id]: sell }));
+                      }}
+                    />
+                  </Col>
+                </Row>
+
                 <Button
                   type="primary"
                   block
@@ -349,15 +342,10 @@ const AccountInventory = ({ account, onBack }) => {
 
                 <div style={{ marginTop: 24 }}>
                   <Text strong>История цен:</Text>
-                  {historyLoading ? (
-                    <div style={{ textAlign: 'center', padding: 16 }}>
-                      <Spin size="small" />
-                    </div>
-                  ) : priceHistory.length ? (
-                    <Line data={chartData} options={chartOptions} />
-                  ) : (
-                    <Text type="secondary">График недоступен</Text>
-                  )}
+                  <PriceHistoryChart
+                    data={priceHistory}
+                    loading={historyLoading}
+                  />
                 </div>
               </Card>
             )}
@@ -376,7 +364,13 @@ const AccountInventory = ({ account, onBack }) => {
         items={selectedItems
           .map(key => items.find(item => item.id === key))
           .filter(Boolean)}
+        account={account}
+        onRemoveItem={(itemId) =>
+          setSelectedItems(prev => prev.filter(id => id !== itemId))
+        }
         onClose={() => setModalVisible(false)}
+        autoConfirm={autoConfirm}
+        statsEnabled = {statsEnabled}
       />
     </>
   );
